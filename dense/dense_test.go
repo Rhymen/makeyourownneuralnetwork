@@ -22,9 +22,9 @@ func TestNew(t *testing.T) {
 		2, 3, 4,
 	)
 
-	for i := range *m {
-		for j := range (*m)[i] {
-			if int((*m)[i][j]) != (i + j) {
+	for i := range m {
+		for j := range m[i] {
+			if int(m[i][j]) != (i + j) {
 				t.FailNow()
 			}
 		}
