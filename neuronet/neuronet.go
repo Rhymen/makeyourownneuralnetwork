@@ -3,12 +3,12 @@ package neuronet
 import (
 	"github.com/Rhymen/ml/dense"
 	"math"
-	"bufio"
 	"encoding/csv"
 	"strconv"
 	"os"
 	"fmt"
 	"encoding/gob"
+	"io"
 )
 
 type neuralNetwork struct {
@@ -39,7 +39,7 @@ func New(iNodes, hNodes, oNodes int, lr float64) *neuralNetwork {
 		lr,
 		dense.Random(hNodes, iNodes).SubtractScalar(0.5), //TODO: check optional code
 		dense.Random(oNodes, hNodes).SubtractScalar(0.5),
-		func(sum float64) float64 { return 1.0/(1.0 + math.Exp(-sum)) },
+		func(sum float64) float64 { return 1.0 / (1.0 + math.Exp(-sum)) },
 	}
 
 	return n
@@ -63,7 +63,7 @@ func FromCheckpoint(filePath string) (*neuralNetwork, error) {
 		n.Lr,
 		n.Wih,
 		n.Who,
-		func(sum float64) float64 { return 1.0/(1.0 + math.Exp(-sum)) },
+		func(sum float64) float64 { return 1.0 / (1.0 + math.Exp(-sum)) },
 	}, nil
 }
 
@@ -99,12 +99,7 @@ func (n *neuralNetwork) Train(input, target dense.Matrix) {
 	hiddenErrors := n.who.Transpose().Multiply(outputErrors)
 
 	// ((outputErrors * finalOutputs * (-1 * finalOutputs + 1)) * target.T) * lr
-	t1 := outputErrors.MultiplyComponent(finalOutput)
-	t2 := finalOutput.MultiplyScalar(-1).AddScalar(1)
-	t3 := t1.MultiplyComponent(t2)
-	t4 := t3.Multiply(hiddenOutput.Transpose())
-	t5 := t4.MultiplyScalar(n.lr)
-	n.who = n.who.Add(t5)
+	n.who = n.who.Add(outputErrors.MultiplyComponent(finalOutput).MultiplyComponent(finalOutput.MultiplyScalar(-1).AddScalar(1)).Multiply(hiddenOutput.Transpose()).MultiplyScalar(n.lr))
 
 	// ((hiddenErrors * hiddenOuputs * (-1 * hiddenOuputs + 1)) * inputs.T) * lr
 	n.wih = n.wih.Add(hiddenErrors.MultiplyComponent(hiddenOutput).MultiplyComponent(hiddenOutput.MultiplyScalar(-1).AddScalar(1)).Multiply(input.Transpose()).MultiplyScalar(n.lr))
@@ -131,25 +126,30 @@ func (n *neuralNetwork) TestNetwork(path string) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
+	defer file.Close()
 
-	reader := bufio.NewReader(file)
+	r := csv.NewReader(file)
 
-	r := csv.NewReader(reader)
-	data, err := r.ReadAll()
-	if err != nil {
-		return 0, err
-	}
-
-	scorecard := make([]int, len(data))
+	scorecard := make([]int, 0)
 	res := 0
 
-	for j := range data {
-		target, err := strconv.Atoi(data[j][0])
+	for j := 0;; j++{
+		rec, err := r.Read()
+		if err != nil {
+			if err == io.EOF {
+				fmt.Printf("break\n")
+				break
+			}
+
+			return 0, err
+		}
+
+		target, err := strconv.Atoi(rec[0])
 		if err != nil {
 			return 0, err
 		}
 
-		pxl, err := dense.FromList(data[j][1:])
+		pxl, err := dense.FromList(rec[1:])
 		if err != nil {
 			return 0, err
 		}
@@ -165,10 +165,10 @@ func (n *neuralNetwork) TestNetwork(path string) (float64, error) {
 		}
 
 		if max == target {
-			scorecard[j] = 1
+			scorecard = append(scorecard, 1)
 			res++
 		} else {
-			scorecard[j] = 0
+			scorecard = append(scorecard, 0)
 			fmt.Printf("{line: %v, target: %v, found: %v},\n", j, target, max)
 		}
 	}
@@ -181,24 +181,28 @@ func (n *neuralNetwork) TrainNetwork(path string, epochs int) error {
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
-	reader := bufio.NewReader(file)
-
-	r := csv.NewReader(reader)
-	data, err := r.ReadAll()
-	if err != nil {
-		return err
-	}
+	r := csv.NewReader(file)
 
 	for i := 0; i < epochs; i++ {
-		for j := range data {
-			t, err := strconv.Atoi(data[j][0])
+		for {
+			rec, err := r.Read()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+
+				return err
+			}
+
+			t, err := strconv.Atoi(rec[0])
 			if err != nil {
 				return err
 			}
 
 			target := buildTargetVector(t)
-			pxl, err := dense.FromList(data[j][1:])
+			pxl, err := dense.FromList(rec[1:])
 			if err != nil {
 				return err
 			}
@@ -206,9 +210,8 @@ func (n *neuralNetwork) TrainNetwork(path string, epochs int) error {
 			pxl = pxl.MultiplyScalar(0.99 / 255.0).AddScalar(0.01)
 			n.Train(pxl, target)
 		}
+		file.Seek(0, 0)
 	}
 
 	return nil
 }
-
-
