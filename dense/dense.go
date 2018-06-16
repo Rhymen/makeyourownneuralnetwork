@@ -198,3 +198,15 @@ func (m Matrix) Equal(n Matrix) bool {
 
 	return true
 }
+
+func (m Matrix) Sum() float64 {
+	r := 0.0
+
+	for i := range m {
+		for j := range m[i] {
+			r += m[i][j]
+		}
+	}
+
+	return r
+}
