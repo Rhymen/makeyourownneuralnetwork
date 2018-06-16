@@ -14,37 +14,31 @@ import (
 type neuralNetwork struct {
 	iNodes             int
 	hNodes             int
-	h2Nodes            int
 	oNodes             int
 	lr                 float64
 	wih                dense.Matrix
-	whh2               dense.Matrix
-	wh2o               dense.Matrix
+	who                dense.Matrix
 	activationFunction func(float64) float64
 }
 
 type neuralNetworkGob struct {
 	INodes             int
 	HNodes             int
-	H2Nodes            int
 	ONodes             int
 	Lr                 float64
 	Wih                dense.Matrix
-	Whh2               dense.Matrix
-	Wh2o               dense.Matrix
+	Who                dense.Matrix
 	ActivationFunction func(float64) float64
 }
 
-func New(iNodes, hNodes, h2Nodes, oNodes int, lr float64) *neuralNetwork {
+func New(iNodes, hNodes, oNodes int, lr float64) *neuralNetwork {
 	n := &neuralNetwork{
 		iNodes,
 		hNodes,
-		h2Nodes,
 		oNodes,
 		lr,
-		dense.Random(hNodes, iNodes).SubtractScalar(0.5),
-		dense.Random(h2Nodes, hNodes).SubtractScalar(0.5),
-		dense.Random(oNodes, h2Nodes).SubtractScalar(0.5),
+		dense.Random(hNodes, iNodes).SubtractScalar(0.5), //TODO: check optional code
+		dense.Random(oNodes, hNodes).SubtractScalar(0.5),
 		func(sum float64) float64 { return 1.0 / (1.0 + math.Exp(-sum)) },
 	}
 
@@ -65,12 +59,10 @@ func FromCheckpoint(filePath string) (*neuralNetwork, error) {
 	return &neuralNetwork{
 		n.INodes,
 		n.HNodes,
-		n.H2Nodes,
 		n.ONodes,
 		n.Lr,
 		n.Wih,
-		n.Whh2,
-		n.Wh2o,
+		n.Who,
 		func(sum float64) float64 { return 1.0 / (1.0 + math.Exp(-sum)) },
 	}, nil
 }
@@ -86,12 +78,10 @@ func (n *neuralNetwork) CreateCheckpoint(filePath string) error {
 	encoder.Encode(neuralNetworkGob{
 		n.iNodes,
 		n.hNodes,
-		n.h2Nodes,
 		n.oNodes,
 		n.lr,
 		n.wih,
-		n.whh2,
-		n.wh2o,
+		n.who,
 		n.activationFunction,
 	})
 
@@ -102,20 +92,16 @@ func (n *neuralNetwork) Train(input, target dense.Matrix) {
 	hiddenInput := n.wih.Multiply(input)
 	hiddenOutput := hiddenInput.Apply(n.activationFunction)
 
-	hidden2Input := n.whh2.Multiply(hiddenOutput)
-	hidden2Output := hidden2Input.Apply(n.activationFunction)
-
-	finalInput := n.wh2o.Multiply(hidden2Output)
+	finalInput := n.who.Multiply(hiddenOutput)
 	finalOutput := finalInput.Apply(n.activationFunction)
 
 	outputErrors := target.Subtract(finalOutput)
-	hidden2Errors := n.wh2o.Transpose().Multiply(outputErrors)
-	hiddenErrors := n.whh2.Transpose().Multiply(hidden2Errors)
+	hiddenErrors := n.who.Transpose().Multiply(outputErrors)
 
-	n.wh2o = n.wh2o.Add(outputErrors.MultiplyComponent(finalOutput).MultiplyComponent(finalOutput.MultiplyScalar(-1).AddScalar(1)).Multiply(hidden2Output.Transpose()).MultiplyScalar(n.lr))
+	// ((outputErrors * finalOutputs * (-1 * finalOutputs + 1)) * target.T) * lr
+	n.who = n.who.Add(outputErrors.MultiplyComponent(finalOutput).MultiplyComponent(finalOutput.MultiplyScalar(-1).AddScalar(1)).Multiply(hiddenOutput.Transpose()).MultiplyScalar(n.lr))
 
-	n.whh2 = n.whh2.Add(hidden2Errors.MultiplyComponent(hidden2Output).MultiplyComponent(hidden2Output.MultiplyScalar(-1).AddScalar(1)).Multiply(hiddenOutput.Transpose()).MultiplyScalar(n.lr))
-
+	// ((hiddenErrors * hiddenOuputs * (-1 * hiddenOuputs + 1)) * inputs.T) * lr
 	n.wih = n.wih.Add(hiddenErrors.MultiplyComponent(hiddenOutput).MultiplyComponent(hiddenOutput.MultiplyScalar(-1).AddScalar(1)).Multiply(input.Transpose()).MultiplyScalar(n.lr))
 }
 
@@ -123,10 +109,7 @@ func (n *neuralNetwork) Query(input dense.Matrix) dense.Matrix {
 	hiddenInput := n.wih.Multiply(input)
 	hiddenOutput := hiddenInput.Apply(n.activationFunction)
 
-	hidden2Input := n.whh2.Multiply(hiddenOutput)
-	hidden2Output := hidden2Input.Apply(n.activationFunction)
-
-	finalInput := n.wh2o.Multiply(hidden2Output)
+	finalInput := n.who.Multiply(hiddenOutput)
 	finalOutput := finalInput.Apply(n.activationFunction)
 
 	return finalOutput
@@ -150,7 +133,7 @@ func (n *neuralNetwork) TestNetwork(path string) (float64, error) {
 	scorecard := make([]int, 0)
 	res := 0
 
-	for j := 0; ; j++ {
+	for j := 0;; j++{
 		rec, err := r.Read()
 		if err != nil {
 			if err == io.EOF {

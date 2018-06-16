@@ -12,7 +12,6 @@ const (
 	save           = false
 	iNodes         = 784
 	hNodes         = 100
-	h2Nodes        = 100
 	oNodes         = 10
 	lr             = 0.1
 	checkpointFile = "./checkpoints/784-100-10-01.gob"
@@ -24,7 +23,7 @@ const (
 func main() {
 	now := time.Now()
 
-	n := neuronet.New(iNodes, hNodes, h2Nodes, oNodes, lr)
+	n := neuronet.New(iNodes, hNodes, oNodes, lr)
 	var err error
 
 	if load {
